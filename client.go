@@ -17,6 +17,7 @@ type message struct {
 
 // 20 bytes * 8 bits = 128
 var messageSize = 160
+var protocolID = hash("Granada1.0")
 
 func hash(s string) uint32 {
         h := fnv.New32a()
@@ -53,10 +54,8 @@ func main() {
 	copy(buffer[:], "hello server!")
 
 	msg := new(message)
-	msg.ProtocolID = hash("Granada1.0")
+	msg.ProtocolID = protocolID
 	msg.Payload = buffer
-
-	fmt.Printf("Our ProtocolID is: %v\n", msg.ProtocolID)
 
 	// Encoding packet
 	var convertedMsg bytes.Buffer
@@ -75,5 +74,10 @@ func main() {
 	err = gob.NewDecoder(bytes.NewReader(readBuf[:n])).Decode(&value)
 	checkErr(err)
 
-	fmt.Printf("recieved %s from server\n", value.Payload)
+	if (value.ProtocolID != protocolID) {
+		fmt.Printf("not our protocol!\n");
+	} else {
+		fmt.Printf("recieved %s from server\n", value.Payload)
+	}
+	
 }
