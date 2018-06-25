@@ -3,11 +3,10 @@ package main
 import (
     "fmt"
     "net"
-    "time"
-	"bufio"
 	"hash/fnv"
 	"encoding/gob"
 	"bytes"
+	"os"
 )
 
 // total 20 bytes
@@ -16,92 +15,65 @@ type message struct {
 	Payload [16]byte // 16 bytes 
 }
 
+// 20 bytes * 8 bits = 128
+var messageSize = 160
+
 func hash(s string) uint32 {
         h := fnv.New32a()
         h.Write([]byte(s))
         return h.Sum32()
 }
 
-// 20 bytes * 8 bits = 128
-var messageSize = 160
+func checkErr(err error) {
+    if err != nil {
+        fmt.Println("ERROR:", err)
+        os.Exit(1)
+    }
+}
 
 func main() {
-	//INITIALIZATION
+	// Initialization
 
 	/*
 	localAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-
-	if err != nil {
-		fmt.Printf("some error %v\n", err)
-		return
-	}
+	checkErr(err)
 	*/
 
 	serverAddr, addrErr := net.ResolveUDPAddr("udp", "13.58.214.125:10001")
-
-	if addrErr != nil {
-		fmt.Printf("some error %v\n", addrErr)
-		return
-	}
+	checkErr(addrErr)
 
     conn, dialErr := net.DialUDP("udp", nil, serverAddr)
-
-    if dialErr != nil {
-            fmt.Printf("some error %v\n", dialErr)
-            return
-    }
+    checkErr(dialErr)
 
 	defer conn.Close()
 	fmt.Printf("initialized\n")
 
 	// Building packet
-
-	msg := new(message)
-
-	msg.ProtocolID = hash("Granada1.0")
-	fmt.Printf("Our ProtocolID is: %v\n", msg.ProtocolID)
 	var buffer [16]byte
 	copy(buffer[:], "hello server!")
+
+	msg := new(message)
+	msg.ProtocolID = hash("Granada1.0")
 	msg.Payload = buffer
+
+	fmt.Printf("Our ProtocolID is: %v\n", msg.ProtocolID)
 
 	// Encoding packet
 	var convertedMsg bytes.Buffer
-	if err := gob.NewEncoder(&convertedMsg).Encode(msg); err != nil {
-		fmt.Printf("encode err: ", err)
-		return
-	}
+	err := gob.NewEncoder(&convertedMsg).Encode(msg); 
+	checkErr(err)
 
 	// Writing packet
 	_, writeErr := conn.Write(convertedMsg.Bytes())
-	
-	if writeErr != nil {
-		fmt.Printf("write error ", writeErr)
-		return
-	}
+	checkErr(writeErr)
 	
 	// Reading response
 	readBuf := make([]byte, messageSize)
-	placeholder, readErr := bufio.NewReader(conn).Read(readBuf)
+	n, err := conn.Read(readBuf)
+	checkErr(err)
+	var value message
+	err = gob.NewDecoder(bytes.NewReader(readBuf[:n])).Decode(&value)
+	checkErr(err)
 
-	if readErr != nil {
-		fmt.Printf("error reading! ", readErr)
-		fmt.Printf("plus this! ", placeholder)
-		return
-	} else {
-		fmt.Printf("%s\n\n", readBuf)
-	}
-
-	time.Sleep(time.Second * 1)
-}		
-
-/*
-        fmt.Fprintf(conn, "Hi UDP Server, How are you doing?")
-        _, err = bufio.NewReader(conn).Read(p)
-        if err == nil {
-                fmt.Printf("%s\n", p)
-        } else {
-                fmt.Printf("Some error %v\n", err)
-        }
-        conn.Close()
+	fmt.Printf("%s\n\n", value)
 }
-*/
