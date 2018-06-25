@@ -1,0 +1,3 @@
+initialized
+Our protocolID is: 2056580906
+encode err: %!(EXTRA *errors.errorString=gob: type main.message has no exported fields)
