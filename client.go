@@ -75,5 +75,5 @@ func main() {
 	err = gob.NewDecoder(bytes.NewReader(readBuf[:n])).Decode(&value)
 	checkErr(err)
 
-	fmt.Printf("%s\n\n", value)
+	fmt.Printf("recieved %s from server\n", value.Payload)
 }
