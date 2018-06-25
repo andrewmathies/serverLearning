@@ -70,7 +70,7 @@ func main() {
                 err = gob.NewDecoder(bytes.NewReader(buf[:n])).Decode(&value)
                 checkErr(err)
 
-                fmt.Printf("recieved %+v from %v\n\n", value, remoteaddr)
+                fmt.Printf("recieved %s from %v\n", value.Payload, remoteaddr)
 
                 go sendResponse(serverConn, remoteaddr)
         }
