@@ -75,7 +75,7 @@ func main() {
 	checkErr(err)
 
 	if (value.ProtocolID != protocolID) {
-		fmt.Printf("not our protocol!\n");
+		fmt.Printf("not our protocol!\n")
 	} else {
 		fmt.Printf("recieved %s from server\n", value.Payload)
 	}
