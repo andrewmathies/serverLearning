@@ -15,7 +15,7 @@ import (
 // GLOBALS
 //----------------------------------------------------------------------------
 
-const messageSize = 20
+const messageSize = 48
 const timeout = 5       //5 seconds
 const timeToRun = 60    // 60 seconds
 
@@ -27,10 +27,10 @@ var sendPort string
 // TYPES
 //----------------------------------------------------------------------------
 
-// total 20 bytes
+// total 48 bytes
 type message struct {
     ProtocolID  uint32 // 32 bits = 4 bytes
-    Payload     string // 16 bytes 
+    Payload     [44]byte // 16 bytes 
 }
 
 type session struct {
@@ -48,9 +48,12 @@ type monitor struct {
 //----------------------------------------------------------------------------
 
 func newMessage(payload string) *message {
+    var payloadBuffer [44]byte
+    copy(payloadBuffer[:], payload)
+
     return &message{
         ProtocolID: protocolID,
-        Payload: payload,
+        Payload: payloadBuffer,
     }
 }
 
