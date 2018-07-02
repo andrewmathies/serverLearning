@@ -15,7 +15,7 @@ import (
 // GLOBALS
 //----------------------------------------------------------------------------
 
-const messageSize = 48
+const MessageSize = 48
 const timeout = 5       //5 seconds
 const timeToRun = 60    // 60 seconds
 
@@ -28,7 +28,7 @@ var sendPort string
 //----------------------------------------------------------------------------
 
 // total 48 bytes
-type message struct {
+type Message struct {
     ProtocolID  uint32 // 32 bits = 4 bytes
     Payload     [44]byte // 16 bytes 
 }
@@ -36,22 +36,24 @@ type message struct {
 type session struct {
     Conn     *net.UDPConn
     Address  *net.UDPAddr
+    Encoder  *gob.Encoder
 }
 
 type monitor struct {
     Conn *net.UDPConn
     Kill chan bool
+    Decoder *gob.Decoder
 }
 
 //----------------------------------------------------------------------------
 // MESSAGE METHODS
 //----------------------------------------------------------------------------
 
-func newMessage(payload string) *message {
+func newMessage(payload string) *Message {
     var payloadBuffer [44]byte
     copy(payloadBuffer[:], payload)
 
-    return &message{
+    return &Message{
         ProtocolID: protocolID,
         Payload: payloadBuffer,
     }
@@ -62,20 +64,12 @@ func newMessage(payload string) *message {
 //----------------------------------------------------------------------------
 
 func newSession(sendAddress string) *session {
+    conn := bindAddress(sendAddress, true)
+
     return &session{
-        Conn: bindAddress(sendAddress, true),
+        Conn: conn,
+        Encoder: gob.NewEncoder(conn),
     }
-}
-
-func (s *session) SendData(msg message) {
-    // Encoding packet
-    var messageBuffer bytes.Buffer
-    err := gob.NewEncoder(&messageBuffer).Encode(msg); 
-    checkErr(err)
-
-    // Writing packet
-    _, writeErr := s.Conn.Write(messageBuffer.Bytes())
-    checkErr(writeErr)
 }
 
 //----------------------------------------------------------------------------
@@ -83,36 +77,29 @@ func (s *session) SendData(msg message) {
 //----------------------------------------------------------------------------
 
 func newMonitor(address string) *monitor {
+    conn := bindAddress(address, false)
+
     return &monitor{
-        Conn: bindAddress(address, false),
+        Conn: conn,
         Kill: make(chan bool),
+        Decoder: gob.NewDecoder(conn),
     }
 }
 
-func (m *monitor) detectTimeOut(frame chan message, delay time.Duration) {
-    buffer := make([]byte, messageSize)
+func (m *monitor) detectTimeOut(frame chan Message, delay time.Duration) {   
     m.Conn.SetReadDeadline(time.Now().Add(delay))
 
     for {
-        n, err := m.Conn.Read(buffer)
-        checkErr(err)
+        var msg Message
+        err := m.Decoder.Decode(&msg)
 
-        if n > 0 {
-            // something was read before the deadline so reset the deadline
-            var msg message
-            err = gob.NewDecoder(bytes.NewReader(buffer[:n])).Decode(&msg)
-            checkErr(err)
-
-            if (msg.ProtocolID != protocolID) {
-                fmt.Printf("not our protocol!\n");
-            } else {
-                frame <- msg
-            }
-
-            n = 0
-            //go monitor.SendAck()
-            m.Conn.SetReadDeadline(time.Now().Add(delay))
+        if (msg.ProtocolID != protocolID) {
+            fmt.Printf("not our protocol!\n");
+        } else {
+            frame <- msg
         }
+
+        m.Conn.SetReadDeadline(time.Now().Add(delay))
         
         if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
             // Timeout error
@@ -122,22 +109,7 @@ func (m *monitor) detectTimeOut(frame chan message, delay time.Duration) {
         }
     }
 }
-/*
-func (m *monitor) SendAck() {
-        msg := new(message)
-        msg.ProtocolID = protocolID
-        msg.Payload = "ack!"
 
-        // Encoding packet
-        var messageBuffer bytes.Buffer
-        err := gob.NewEncoder(&messageBuffer).Encode(msg); 
-        checkErr(err)
-
-        // Writing packet
-        _, writeErr := m.Conn.WriteToUDP(messageBuffer.Bytes())
-        checkErr(writeErr)
-}
-*/
 //----------------------------------------------------------------------------
 // FUNCTIONS
 //----------------------------------------------------------------------------
@@ -180,22 +152,7 @@ func bindAddress(address string, dial bool) *net.UDPConn {
 }
 
 
- /*
- potential decode function?
-                //decoding response
-                var value message
-                err = gob.NewDecoder(bytes.NewReader(buf[:n])).Decode(&value)
-                checkErr(err)
-
-                if (value.ProtocolID != protocolID) {
-                    fmt.Printf("not our protocol!\n");
-                } else {
-                    fmt.Printf("recieved %s from %v\n", value.Payload, remoteaddr)
-                }
-                */
-
-
-func SendThread(frame chan *message) {
+func SendThread(frame chan *Message) {
     var addressBuffer bytes.Buffer
     addressBuffer.WriteString(os.Args[1])
     addressBuffer.WriteString(sendPort)
@@ -205,13 +162,12 @@ func SendThread(frame chan *message) {
         select {
             case msgPtr := <-frame:
                 msg := *msgPtr
-                fmt.Printf("listen thread recieved %+v through the outChannel\n", msg)
-                session.SendData(msg)
+                session.Encoder.Encode(msg)
         }
     }
 }
 
-func ListenThread(frame chan message) {
+func ListenThread(frame chan Message) {
     monitor := newMonitor(recievePort)
     defer monitor.Conn.Close()
     monitor.detectTimeOut(frame, timeout)
@@ -226,24 +182,6 @@ func ListenThread(frame chan message) {
     }
 }
 
-/*
-func KillConnection(<- done chan bool)  {
-    timer := time.NewTimer(time.Second * timeToRun)
-    <- timer.C
-    done <- true
-}
-
-func ControlCKill() {
-    c := make(chan os.Signal)
-    signal.Notify(c, os.Interrupt)
-
-    select {
-    case sig := <-c:
-        fmt.Printf("Got %s signal. Aborting...\n", sig)
-        os.Exit(1)
-    }
-}
-*/
 //----------------------------------------------------------------------------
 // MAIN
 //----------------------------------------------------------------------------
@@ -260,44 +198,25 @@ func main() {
         recievePort = ":10001"
     }
 
-    //doneChannel := make(chan bool, 2)
-
-    // runs the program for a certain amount of time
-    //go KillGame(doneChannel)
-    //go ControlCKill()
-
-    frameChannelOut := make(chan *message, 5)
-    //  frameChannelIn := make(chan message, 5)
+    frameChannelOut := make(chan *Message, 5)
+    frameChannelIn := make(chan Message, 5)
 
     go func() {
         for {
             msg := newMessage("whats up!")
             frameChannelOut <- msg
-            fmt.Printf("sent message\n");
+            fmt.Printf("sent Message\n");
             time.Sleep(time.Second)
         }
     }()
 
     go SendThread(frameChannelOut)
-    /*
     go ListenThread(frameChannelIn)
 
     fmt.Printf("Waiting for a response, and sending data\n")
 
     for {
         msg := <-frameChannelIn
-        fmt.Printf("recieved message: %+v\n", msg)
-    }
-    */
-    for {
-        time.Sleep(time.Second);
+        fmt.Printf("recieved Message: %+v\n", msg)
     }
 }
-
-
-/*
-application needs to:
-
-listen at  a port, read incoming data in loop and pass it somewhere(buffer?) when it gets here
-send data every second (start stupid then make a frame/packet channel to put data into)
-*/
