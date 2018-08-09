@@ -16,8 +16,8 @@ import (
 //----------------------------------------------------------------------------
 
 const MessageSize = 48
-const timeout = 5       //5 seconds
-const timeToRun = 60    // 60 seconds
+const firstTimeout = 30 * time.Second
+const normalTimeout = 5 * time.Second       //5 seconds
 
 var protocolID = hash("Granada1.0")
 var recievePort string
@@ -86,24 +86,24 @@ func newMonitor(address string) *monitor {
     }
 }
 
-func (m *monitor) detectTimeOut(frame chan Message, delay time.Duration) {   
-    m.Conn.SetReadDeadline(time.Now().Add(delay))
+func (m *monitor) detectTimeOut(frame chan Message) {   
+    m.Conn.SetReadDeadline(time.Now().Add(firstTimeout))
 
     for {
         var msg Message
         err := m.Decoder.Decode(&msg)
+        checkErr(err)
 
         if (msg.ProtocolID != protocolID) {
             fmt.Printf("not our protocol!\n");
         } else {
             frame <- msg
+            m.Conn.SetReadDeadline(time.Now().Add(normalTimeout))
         }
-
-        m.Conn.SetReadDeadline(time.Now().Add(delay))
         
         if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
             // Timeout error
-            fmt.Println("No response")
+            fmt.Println("timed out")
             m.Kill <- true
             return
         }
@@ -167,15 +167,15 @@ func SendThread(frame chan *Message) {
     }
 }
 
-func ListenThread(frame chan Message) {
+func ListenThread(frame chan *Message) {
     monitor := newMonitor(recievePort)
     defer monitor.Conn.Close()
-    monitor.detectTimeOut(frame, timeout)
+    go monitor.detectTimeOut(frame)
 
     for {
         select {
         case <- monitor.Kill:
-            //game is killed
+            close(frame)
             fmt.Println("Stopped listening")
             return
         }
@@ -190,6 +190,9 @@ func main() {
     portBool, parseErr := strconv.ParseBool(os.Args[2])
     checkErr(parseErr)
 
+    initiaterBool, parseErr := strconv.ParseBool(os.Args[3])
+    checkErr(parseErr)
+
     if (portBool) {
         sendPort = ":10001"
         recievePort = ":10002"
@@ -198,25 +201,58 @@ func main() {
         recievePort = ":10001"
     }
 
-    frameChannelOut := make(chan *Message, 5)
     frameChannelIn := make(chan Message, 5)
+    frameChannelOut := make(chan *Message, 5)
 
-    go func() {
-        for {
-            msg := newMessage("whats up!")
-            frameChannelOut <- msg
-            fmt.Printf("sent Message\n");
-            time.Sleep(time.Second)
+    if (!initiaterBool) {
+        go ListenThread(frameChannelIn)
+
+        msg, ok := <-frameChannelIn
+        if !ok {
+            fmt.Printf("Couldn't establish a connection")
+            return
         }
-    }()
 
-    go SendThread(frameChannelOut)
-    go ListenThread(frameChannelIn)
+        fmt.Printf("Established connection!")
+        fmt.Printf("recieved message: %v\n", msg)
 
-    fmt.Printf("Waiting for a response, and sending data\n")
+        go func() {
+            for {
+                msg := <-frameChannelIn
+                fmt.Printf("recieved Message: %+v\n", msg)
+            }
+        }()
 
-    for {
-        msg := <-frameChannelIn
-        fmt.Printf("recieved Message: %+v\n", msg)
+        go func() {
+            for {
+                msg := newMessage("whats up!")
+                frameChannelOut <- msg
+                fmt.Printf("sent Message\n");
+                time.Sleep(time.Second)
+            }
+        }()
+
+        go SendThread(frameChannelOut)
+    } else {
+        responseTimer := := time.NewTimer(60 * time.Second).C
+        
+        go func() {
+            for {
+                msg := newMessage("whats up!")
+                frameChannelOut <- msg
+                fmt.Printf("sent Message\n");
+                time.Sleep(time.Second)
+            }
+        }()
+
+        go SendThread(frameChannelOut)
+
+        for {
+            select {
+            case <- responseTimer:
+                fmt.Printf("Couldn't establish a connection, retrying")
+                
+            }
+        }
     }
 }
