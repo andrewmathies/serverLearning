@@ -1,0 +1,2 @@
+# Go Server-Client Connection
+This was a small project I worked on over the summer of 2019. The startup I was working at, Clearblade, had a backend written in Go, so I decided to work on this to gain more familiarity with the language. My goal was to establish a TCP connection between a server and a client, and I accomplished that. I also added a protocol ID which is a unique 16 bit hash, but didn't end up adding any other features to the protocol.
